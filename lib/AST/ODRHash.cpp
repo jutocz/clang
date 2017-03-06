@@ -22,11 +22,67 @@
 
 using namespace clang;
 
-void ODRHash::AddStmt(const Stmt *S) {}
-void ODRHash::AddIdentifierInfo(const IdentifierInfo *II) {}
+void ODRHash::AddStmt(const Stmt *S) {
+  assert(S && "Expecting non-null pointer.");
+  S->ProcessODRHash(ID, *this);
+}
+
+void ODRHash::AddIdentifierInfo(const IdentifierInfo *II) {
+  assert(II && "Expecting non-null pointer.");
+  ID.AddString(II->getName());
+}
+
+void ODRHash::AddDeclarationName(DeclarationName Name) {
+  AddBoolean(Name.isEmpty());
+  if (Name.isEmpty())
+    return;
+
+  auto Kind = Name.getNameKind();
+  ID.AddInteger(Kind);
+  switch (Kind) {
+  case DeclarationName::Identifier:
+    AddIdentifierInfo(Name.getAsIdentifierInfo());
+    break;
+  case DeclarationName::ObjCZeroArgSelector:
+  case DeclarationName::ObjCOneArgSelector:
+  case DeclarationName::ObjCMultiArgSelector: {
+    Selector S = Name.getObjCSelector();
+    AddBoolean(S.isNull());
+    AddBoolean(S.isKeywordSelector());
+    AddBoolean(S.isUnarySelector());
+    unsigned NumArgs = S.getNumArgs();
+    for (unsigned i = 0; i < NumArgs; ++i) {
+      AddIdentifierInfo(S.getIdentifierInfoForSlot(i));
+    }
+    break;
+  }
+  case DeclarationName::CXXConstructorName:
+  case DeclarationName::CXXDestructorName:
+    AddQualType(Name.getCXXNameType());
+    break;
+  case DeclarationName::CXXOperatorName:
+    ID.AddInteger(Name.getCXXOverloadedOperator());
+    break;
+  case DeclarationName::CXXLiteralOperatorName:
+    AddIdentifierInfo(Name.getCXXLiteralIdentifier());
+    break;
+  case DeclarationName::CXXConversionFunctionName:
+    AddQualType(Name.getCXXNameType());
+    break;
+  case DeclarationName::CXXUsingDirective:
+    break;
+  case DeclarationName::CXXDeductionGuideName: {
+    auto *Template = Name.getCXXDeductionGuideTemplate();
+    AddBoolean(Template);
+    if (Template) {
+      AddDecl(Template);
+    }
+  }
+  }
+}
+
 void ODRHash::AddNestedNameSpecifier(const NestedNameSpecifier *NNS) {}
 void ODRHash::AddTemplateName(TemplateName Name) {}
-void ODRHash::AddDeclarationName(DeclarationName Name) {}
 void ODRHash::AddTemplateArgument(TemplateArgument TA) {}
 void ODRHash::AddTemplateParameterList(const TemplateParameterList *TPL) {}
 
@@ -74,19 +130,86 @@ unsigned ODRHash::CalculateHash() {
 class ODRDeclVisitor : public ConstDeclVisitor<ODRDeclVisitor> {
   typedef ConstDeclVisitor<ODRDeclVisitor> Inherited;
   llvm::FoldingSetNodeID &ID;
+  ODRHash &Hash;
 
 public:
-  ODRDeclVisitor(llvm::FoldingSetNodeID &ID)
-      : ID(ID) {}
+  ODRDeclVisitor(llvm::FoldingSetNodeID &ID, ODRHash &Hash)
+      : ID(ID), Hash(Hash) {}
+
+  void AddStmt(const Stmt *S) {
+    Hash.AddBoolean(S);
+    if (S) {
+      Hash.AddStmt(S);
+    }
+  }
+
+  void AddIdentifierInfo(const IdentifierInfo *II) {
+    Hash.AddBoolean(II);
+    if (II) {
+      Hash.AddIdentifierInfo(II);
+    }
+  }
+
+  void AddQualType(QualType T) {
+    Hash.AddQualType(T);
+  }
 
   void Visit(const Decl *D) {
     ID.AddInteger(D->getKind());
     Inherited::Visit(D);
   }
 
+  void VisitNamedDecl(const NamedDecl *D) {
+    Hash.AddDeclarationName(D->getDeclName());
+    Inherited::VisitNamedDecl(D);
+  }
+
+  void VisitValueDecl(const ValueDecl *D) {
+    AddQualType(D->getType());
+    Inherited::VisitValueDecl(D);
+  }
+
   void VisitAccessSpecDecl(const AccessSpecDecl *D) {
     ID.AddInteger(D->getAccess());
     Inherited::VisitAccessSpecDecl(D);
+  }
+
+  void VisitStaticAssertDecl(const StaticAssertDecl *D) {
+    AddStmt(D->getAssertExpr());
+    AddStmt(D->getMessage());
+
+    Inherited::VisitStaticAssertDecl(D);
+  }
+
+  void VisitFieldDecl(const FieldDecl *D) {
+    const bool IsBitfield = D->isBitField();
+    Hash.AddBoolean(IsBitfield);
+
+    if (IsBitfield) {
+      AddStmt(D->getBitWidth());
+    }
+
+    Hash.AddBoolean(D->isMutable());
+    AddStmt(D->getInClassInitializer());
+
+    Inherited::VisitFieldDecl(D);
+  }
+
+  void VisitFunctionDecl(const FunctionDecl *D) {
+    ID.AddInteger(D->getStorageClass());
+    Hash.AddBoolean(D->isInlineSpecified());
+    Hash.AddBoolean(D->isVirtualAsWritten());
+    Hash.AddBoolean(D->isPure());
+    Hash.AddBoolean(D->isDeletedAsWritten());
+
+    Inherited::VisitFunctionDecl(D);
+  }
+
+  void VisitCXXMethodDecl(const CXXMethodDecl *D) {
+    Hash.AddBoolean(D->isConst());
+    Hash.AddBoolean(D->isVolatile());
+
+    Inherited::VisitCXXMethodDecl(D);
   }
 };
 
@@ -100,6 +223,9 @@ bool ODRHash::isWhitelistedDecl(const Decl *D, const CXXRecordDecl *Parent) {
     default:
       return false;
     case Decl::AccessSpec:
+    case Decl::CXXMethod:
+    case Decl::Field:
+    case Decl::StaticAssert:
       return true;
   }
 }
@@ -108,7 +234,7 @@ void ODRHash::AddSubDecl(const Decl *D) {
   assert(D && "Expecting non-null pointer.");
   AddDecl(D);
 
-  ODRDeclVisitor(ID).Visit(D);
+  ODRDeclVisitor(ID, *this).Visit(D);
 }
 
 void ODRHash::AddCXXRecordDecl(const CXXRecordDecl *Record) {
@@ -142,10 +268,77 @@ void ODRHash::AddDecl(const Decl *D) {
   }
 
   ID.AddInteger(D->getKind());
+
+  if (const NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
+    AddDeclarationName(ND->getDeclName());
+  }
 }
 
-void ODRHash::AddType(const Type *T) {}
-void ODRHash::AddQualType(QualType T) {}
+// Process a Type pointer.  Add* methods call back into ODRHash while Visit*
+// methods process the relevant parts of the Type.
+class ODRTypeVisitor : public TypeVisitor<ODRTypeVisitor> {
+  typedef TypeVisitor<ODRTypeVisitor> Inherited;
+  llvm::FoldingSetNodeID &ID;
+  ODRHash &Hash;
+
+public:
+  ODRTypeVisitor(llvm::FoldingSetNodeID &ID, ODRHash &Hash)
+      : ID(ID), Hash(Hash) {}
+
+  void AddStmt(Stmt *S) {
+    Hash.AddBoolean(S);
+    if (S) {
+      Hash.AddStmt(S);
+    }
+  }
+
+  void AddDecl(Decl *D) {
+    Hash.AddBoolean(D);
+    if (D) {
+      Hash.AddDecl(D);
+    }
+  }
+
+  void Visit(const Type *T) {
+    ID.AddInteger(T->getTypeClass());
+    Inherited::Visit(T);
+  }
+
+  void VisitType(const Type *T) {}
+
+  void VisitBuiltinType(const BuiltinType *T) {
+    ID.AddInteger(T->getKind());
+    VisitType(T);
+  }
+
+  void VisitTypedefType(const TypedefType *T) {
+    AddDecl(T->getDecl());
+    VisitType(T);
+  }
+};
+
+void ODRHash::AddType(const Type *T) {
+  assert(T && "Expecting non-null pointer.");
+  auto Result = TypeMap.insert(std::make_pair(T, TypeMap.size()));
+  ID.AddInteger(Result.first->second);
+  // On first encounter of a Type pointer, process it.  Every time afterwards,
+  // only the index value is needed.
+  if (!Result.second) {
+    return;
+  }
+
+  ODRTypeVisitor(ID, *this).Visit(T);
+}
+
+void ODRHash::AddQualType(QualType T) {
+  AddBoolean(T.isNull());
+  if (T.isNull())
+    return;
+  SplitQualType split = T.split();
+  ID.AddInteger(split.Quals.getAsOpaqueValue());
+  AddType(split.Ty);
+}
+
 void ODRHash::AddBoolean(bool Value) {
   Bools.push_back(Value);
 }

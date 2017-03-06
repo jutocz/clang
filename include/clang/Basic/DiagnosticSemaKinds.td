@@ -1624,7 +1624,14 @@ def err_covariant_return_type_class_type_more_qualified : Error<
   "return type of virtual function %0 is not covariant with the return type of "
   "the function it overrides (class type %1 is more qualified than class "
   "type %2">;
-  
+
+// C++ implicit special member functions
+def note_in_declaration_of_implicit_special_member : Note<
+  "while declaring the implicit "
+  "%select{default constructor|copy constructor|move constructor|"
+  "copy assignment operator|move assignment operator|destructor}1"
+  " for %0">;
+
 // C++ constructors
 def err_constructor_cannot_be : Error<"constructor cannot be declared '%0'">;
 def err_invalid_qualified_constructor : Error<
@@ -2032,6 +2039,9 @@ def override_keyword_hides_virtual_member_function : Error<
   "%select{function|functions}1">;
 def err_function_marked_override_not_overriding : Error<
   "%0 marked 'override' but does not override any member functions">;
+def warn_destructor_marked_not_override_overriding : Warning <
+  "%0 overrides a destructor but is not marked 'override'">,
+  InGroup<CXX11WarnOverrideDestructor>, DefaultIgnore;
 def warn_function_marked_not_override_overriding : Warning <
   "%0 overrides a member function but is not marked 'override'">,
   InGroup<CXX11WarnOverrideMethod>;
@@ -2744,7 +2754,8 @@ def warn_attribute_wrong_decl_type : Warning<
   "|functions, methods, enums, and classes"
   "|structs, classes, variables, functions, and inline namespaces"
   "|variables, functions, methods, types, enumerations, enumerators, labels, and non-static data members"
-  "|classes and enumerations}1">,
+  "|classes and enumerations"
+  "|named declarations}1">,
   InGroup<IgnoredAttributes>;
 def err_attribute_wrong_decl_type : Error<warn_attribute_wrong_decl_type.Text>;
 def warn_type_attribute_wrong_type : Warning<
@@ -6005,6 +6016,12 @@ def warn_objc_circular_container : Warning<
   "adding '%0' to '%1' might cause circular dependency in container">,
   InGroup<DiagGroup<"objc-circular-container">>;
 def note_objc_circular_container_declared_here : Note<"'%0' declared here">;
+def warn_objc_unsafe_perform_selector : Warning<
+  "%0 is incompatible with selectors that return a "
+  "%select{struct|union|vector}1 type">,
+  InGroup<DiagGroup<"objc-unsafe-perform-selector">>;
+def note_objc_unsafe_perform_selector_method_declared_here :  Note<
+  "method %0 that returns %1 declared here">;
 
 def warn_setter_getter_impl_required : Warning<
   "property %0 requires method %1 to be defined - "

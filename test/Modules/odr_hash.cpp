@@ -21,7 +21,7 @@
 // RUN: echo "}"                        >> %t/Inputs/module.map
 
 // Run test
-// RUN: %clang_cc1 -fmodules -fimplicit-module-maps -fmodules-cache-path=%t/cache -x c++ -I%t/Inputs -verify %s -std=c++11
+// RUN: %clang_cc1 -fmodules -fimplicit-module-maps -fmodules-cache-path=%t/cache -x c++ -I%t/Inputs -verify %s -std=c++1z
 
 #if !defined(FIRST) && !defined(SECOND)
 #include "first.h"
@@ -57,6 +57,354 @@ S2 s2;
 #endif
 } // namespace AccessSpecifiers
 
+namespace StaticAssert {
+#if defined(FIRST)
+struct S1 {
+  static_assert(1 == 1, "First");
+};
+#elif defined(SECOND)
+struct S1 {
+  static_assert(1 == 1, "Second");
+};
+#else
+S1 s1;
+// expected-error@second.h:* {{'StaticAssert::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found static assert with message}}
+// expected-note@first.h:* {{but in 'FirstModule' found static assert with different message}}
+#endif
+
+#if defined(FIRST)
+struct S2 {
+  static_assert(2 == 2, "Message");
+};
+#elif defined(SECOND)
+struct S2 {
+  static_assert(2 == 2);
+};
+#else
+S2 s2;
+// expected-error@second.h:* {{'StaticAssert::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found static assert with no message}}
+// expected-note@first.h:* {{but in 'FirstModule' found static assert with message}}
+#endif
+
+#if defined(FIRST)
+struct S3 {
+  static_assert(3 == 3, "Message");
+};
+#elif defined(SECOND)
+struct S3 {
+  static_assert(3 != 4, "Message");
+};
+#else
+S3 s3;
+// expected-error@second.h:* {{'StaticAssert::S3' has different definitions in different modules; first difference is definition in module 'SecondModule' found static assert with condition}}
+// expected-note@first.h:* {{but in 'FirstModule' found static assert with different condition}}
+#endif
+
+#if defined(FIRST)
+struct S4 {
+  static_assert(4 == 4, "Message");
+};
+#elif defined(SECOND)
+struct S4 {
+  public:
+};
+#else
+S4 s4;
+// expected-error@second.h:* {{'StaticAssert::S4' has different definitions in different modules; first difference is definition in module 'SecondModule' found public access specifier}}
+// expected-note@first.h:* {{but in 'FirstModule' found static assert}}
+#endif
+}
+
+namespace Field {
+#if defined(FIRST)
+struct S1 {
+  int x;
+  private:
+  int y;
+};
+#elif defined(SECOND)
+struct S1 {
+  int x;
+  int y;
+};
+#else
+S1 s1;
+// expected-error@second.h:* {{'Field::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found field}}
+// expected-note@first.h:* {{but in 'FirstModule' found private access specifier}}
+#endif
+
+#if defined(FIRST)
+struct S2 {
+  int x;
+  int y;
+};
+#elif defined(SECOND)
+struct S2 {
+  int y;
+  int x;
+};
+#else
+S2 s2;
+// expected-error@second.h:* {{'Field::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found field 'y'}}
+// expected-note@first.h:* {{but in 'FirstModule' found field 'x'}}
+#endif
+
+#if defined(FIRST)
+struct S3 {
+  double x;
+};
+#elif defined(SECOND)
+struct S3 {
+  int x;
+};
+#else
+S3 s3;
+// expected-error@first.h:* {{'Field::S3::x' from module 'FirstModule' is not present in definition of 'Field::S3' in module 'SecondModule'}}
+// expected-note@second.h:* {{declaration of 'x' does not match}}
+#endif
+
+#if defined(FIRST)
+typedef int A;
+struct S4 {
+  A x;
+};
+
+struct S5 {
+  A x;
+};
+#elif defined(SECOND)
+typedef int B;
+struct S4 {
+  B x;
+};
+
+struct S5 {
+  int x;
+};
+#else
+S4 s4;
+// expected-error@second.h:* {{'Field::S4' has different definitions in different modules; first difference is definition in module 'SecondModule' found field 'x' with type 'B' (aka 'int')}}
+// expected-note@first.h:* {{but in 'FirstModule' found field 'x' with type 'A' (aka 'int')}}
+
+S5 s5;
+// expected-error@second.h:* {{'Field::S5' has different definitions in different modules; first difference is definition in module 'SecondModule' found field 'x' with type 'int'}}
+// expected-note@first.h:* {{but in 'FirstModule' found field 'x' with type 'A' (aka 'int')}}
+#endif
+
+#if defined(FIRST)
+struct S6 {
+  unsigned x;
+};
+#elif defined(SECOND)
+struct S6 {
+  unsigned x : 1;
+};
+#else
+S6 s6;
+// expected-error@second.h:* {{'Field::S6' has different definitions in different modules; first difference is definition in module 'SecondModule' found bitfield 'x'}}
+// expected-note@first.h:* {{but in 'FirstModule' found non-bitfield 'x'}}
+#endif
+
+#if defined(FIRST)
+struct S7 {
+  unsigned x : 2;
+};
+#elif defined(SECOND)
+struct S7 {
+  unsigned x : 1;
+};
+#else
+S7 s7;
+// expected-error@second.h:* {{'Field::S7' has different definitions in different modules; first difference is definition in module 'SecondModule' found bitfield 'x' with one width expression}}
+// expected-note@first.h:* {{but in 'FirstModule' found bitfield 'x' with different width expression}}
+#endif
+
+#if defined(FIRST)
+struct S8 {
+  unsigned x : 2;
+};
+#elif defined(SECOND)
+struct S8 {
+  unsigned x : 1 + 1;
+};
+#else
+S8 s8;
+// expected-error@second.h:* {{'Field::S8' has different definitions in different modules; first difference is definition in module 'SecondModule' found bitfield 'x' with one width expression}}
+// expected-note@first.h:* {{but in 'FirstModule' found bitfield 'x' with different width expression}}
+#endif
+
+#if defined(FIRST)
+struct S9 {
+  mutable int x;
+};
+#elif defined(SECOND)
+struct S9 {
+  int x;
+};
+#else
+S9 s9;
+// expected-error@second.h:* {{'Field::S9' has different definitions in different modules; first difference is definition in module 'SecondModule' found non-mutable field 'x'}}
+// expected-note@first.h:* {{but in 'FirstModule' found mutable field 'x'}}
+#endif
+
+#if defined(FIRST)
+struct S10 {
+  unsigned x = 5;
+};
+#elif defined(SECOND)
+struct S10 {
+  unsigned x;
+};
+#else
+S10 s10;
+// expected-error@second.h:* {{'Field::S10' has different definitions in different modules; first difference is definition in module 'SecondModule' found field 'x' with no initalizer}}
+// expected-note@first.h:* {{but in 'FirstModule' found field 'x' with an initializer}}
+#endif
+
+#if defined(FIRST)
+struct S11 {
+  unsigned x = 5;
+};
+#elif defined(SECOND)
+struct S11 {
+  unsigned x = 7;
+};
+#else
+S11 s11;
+// expected-error@second.h:* {{'Field::S11' has different definitions in different modules; first difference is definition in module 'SecondModule' found field 'x' with an initializer}}
+// expected-note@first.h:* {{but in 'FirstModule' found field 'x' with a different initializer}}
+#endif
+
+}  // namespace Field
+
+namespace Method {
+#if defined(FIRST)
+struct S1 {
+  void A() {}
+};
+#elif defined(SECOND)
+struct S1 {
+  private:
+  void A() {}
+};
+#else
+S1 s1;
+// expected-error@second.h:* {{'Method::S1' has different definitions in different modules; first difference is definition in module 'SecondModule' found private access specifier}}
+// expected-note@first.h:* {{but in 'FirstModule' found method}}
+#endif
+
+#if defined(FIRST)
+struct S2 {
+  void A() {}
+  void B() {}
+};
+#elif defined(SECOND)
+struct S2 {
+  void B() {}
+  void A() {}
+};
+#else
+S2 s2;
+// expected-error@second.h:* {{'Method::S2' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'B'}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A'}}
+#endif
+
+#if defined(FIRST)
+struct S3 {
+  static void A() {}
+  void A(int) {}
+};
+#elif defined(SECOND)
+struct S3 {
+  void A(int) {}
+  static void A() {}
+};
+#else
+S3 s3;
+// expected-error@second.h:* {{'Method::S3' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' is not static}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A' is static}}
+#endif
+
+#if defined(FIRST)
+struct S4 {
+  virtual void A() {}
+  void B() {}
+};
+#elif defined(SECOND)
+struct S4 {
+  void A() {}
+  virtual void B() {}
+};
+#else
+S4 s4;
+// expected-error@second.h:* {{'Method::S4' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' is not virtual}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A' is virtual}}
+#endif
+
+#if defined(FIRST)
+struct S5 {
+  virtual void A() = 0;
+  virtual void B() {};
+};
+#elif defined(SECOND)
+struct S5 {
+  virtual void A() {}
+  virtual void B() = 0;
+};
+#else
+S5 *s5;
+// expected-error@second.h:* {{'Method::S5' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' is virtual}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A' is pure virtual}}
+#endif
+
+#if defined(FIRST)
+struct S6 {
+  inline void A() {}
+};
+#elif defined(SECOND)
+struct S6 {
+  void A() {}
+};
+#else
+S6 s6;
+// expected-error@second.h:* {{'Method::S6' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' is not inline}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A' is inline}}
+#endif
+
+#if defined(FIRST)
+struct S7 {
+  void A() volatile {}
+  void A() {}
+};
+#elif defined(SECOND)
+struct S7 {
+  void A() {}
+  void A() volatile {}
+};
+#else
+S7 s7;
+// expected-error@second.h:* {{'Method::S7' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' is not volatile}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A' is volatile}}
+#endif
+
+#if defined(FIRST)
+struct S8 {
+  void A() const {}
+  void A() {}
+};
+#elif defined(SECOND)
+struct S8 {
+  void A() {}
+  void A() const {}
+};
+#else
+S8 s8;
+// expected-error@second.h:* {{'Method::S8' has different definitions in different modules; first difference is definition in module 'SecondModule' found method 'A' is not const}}
+// expected-note@first.h:* {{but in 'FirstModule' found method 'A' is const}}
+#endif
+
+}  // namespace Method
+
 // Naive parsing of AST can lead to cycles in processing.  Ensure
 // self-references don't trigger an endless cycles of AST node processing.
 namespace SelfReference {
@@ -86,39 +434,127 @@ struct NestedNamespaceSpecifier {};
 // while struct T should error at the access specifier mismatch at the end.
 namespace AllDecls {
 #if defined(FIRST)
+typedef int INT;
 struct S {
   public:
   private:
   protected:
+
+  static_assert(1 == 1, "Message");
+  static_assert(2 == 2);
+
+  int x;
+  double y;
+
+  INT z;
+
+  unsigned a : 1;
+  unsigned b : 2*2 + 5/2;
+
+  mutable int c = sizeof(x + y);
+
+  void method() {}
+  static void static_method() {}
+  virtual void virtual_method() {}
+  virtual void pure_virtual_method() = 0;
+  inline void inline_method() {}
+  void volatile_method() volatile {}
+  void const_method() const {}
 };
 #elif defined(SECOND)
+typedef int INT;
 struct S {
   public:
   private:
   protected:
+
+  static_assert(1 == 1, "Message");
+  static_assert(2 == 2);
+
+  int x;
+  double y;
+
+  INT z;
+
+  unsigned a : 1;
+  unsigned b : 2 * 2 + 5 / 2;
+
+  mutable int c = sizeof(x + y);
+
+  void method() {}
+  static void static_method() {}
+  virtual void virtual_method() {}
+  virtual void pure_virtual_method() = 0;
+  inline void inline_method() {}
+  void volatile_method() volatile {}
+  void const_method() const {}
 };
 #else
-S s;
+S *s;
 #endif
 
 #if defined(FIRST)
+typedef int INT;
 struct T {
   public:
   private:
   protected:
+
+  static_assert(1 == 1, "Message");
+  static_assert(2 == 2);
+
+  int x;
+  double y;
+
+  INT z;
+
+  unsigned a : 1;
+  unsigned b : 2 * 2 + 5 / 2;
+
+  mutable int c = sizeof(x + y);
+
+  void method() {}
+  static void static_method() {}
+  virtual void virtual_method() {}
+  virtual void pure_virtual_method() = 0;
+  inline void inline_method() {}
+  void volatile_method() volatile {}
+  void const_method() const {}
 
   private:
 };
 #elif defined(SECOND)
+typedef int INT;
 struct T {
   public:
   private:
   protected:
 
+  static_assert(1 == 1, "Message");
+  static_assert(2 == 2);
+
+  int x;
+  double y;
+
+  INT z;
+
+  unsigned a : 1;
+  unsigned b : 2 * 2 + 5 / 2;
+
+  mutable int c = sizeof(x + y);
+
+  void method() {}
+  static void static_method() {}
+  virtual void virtual_method() {}
+  virtual void pure_virtual_method() = 0;
+  inline void inline_method() {}
+  void volatile_method() volatile {}
+  void const_method() const {}
+
   public:
 };
 #else
-T t;
+T *t;
 // expected-error@second.h:* {{'AllDecls::T' has different definitions in different modules; first difference is definition in module 'SecondModule' found public access specifier}}
 // expected-note@first.h:* {{but in 'FirstModule' found private access specifier}}
 #endif
