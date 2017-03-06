@@ -313,6 +313,15 @@ void WhitespaceManager::alignConsecutiveAssignments() {
                 // Do not align on equal signs that are last on a line.
                 if (&C != &Changes.back() && (&C + 1)->NewlinesBefore > 0)
                   return false;
+              
+                // Do no align if line starts with 'for' loop.
+                for (auto Prev = C.Tok->Previous; Prev != nullptr; Prev = Prev->Previous) {
+                  if (Prev->Previous == nullptr)
+                  {
+                    if (Prev->is(tok::kw_for))
+                      return false;
+                  }
+                }
 
                 return C.Kind == tok::equal;
               },
