@@ -306,6 +306,10 @@ void WhitespaceManager::alignConsecutiveAssignments() {
 
   AlignTokens(Style,
               [&](const Change &C) {
+                // Check if it is an assignment.
+                if (C.Kind != tok::equal)
+                  return false;
+
                 // Do not align on equal signs that are first on a line.
                 if (C.NewlinesBefore > 0)
                   return false;
@@ -313,17 +317,23 @@ void WhitespaceManager::alignConsecutiveAssignments() {
                 // Do not align on equal signs that are last on a line.
                 if (&C != &Changes.back() && (&C + 1)->NewlinesBefore > 0)
                   return false;
-              
-                // Do no align if line starts with 'for' loop.
-                for (auto Prev = C.Tok->Previous; Prev != nullptr; Prev = Prev->Previous) {
-                  if (Prev->Previous == nullptr)
-                  {
-                    if (Prev->is(tok::kw_for))
-                      return false;
-                  }
+
+                // Do no align if line starts with 'for' loop.               
+                unsigned CurrentLine = SourceMgr.getSpellingLineNumber(
+                    C.OriginalWhitespaceRange.getEnd());
+
+                for (unsigned i = 0, e = Changes.size(); i != e; ++i) {
+                    unsigned OtherLine = SourceMgr.getSpellingLineNumber(
+                        Changes[i].OriginalWhitespaceRange.getEnd());
+
+                    if (OtherLine == CurrentLine)
+                    {
+                        if (Changes[i].Kind == tok::kw_for)
+                            return false;
+                    }
                 }
 
-                return C.Kind == tok::equal;
+                return true;
               },
               Changes);
 }
